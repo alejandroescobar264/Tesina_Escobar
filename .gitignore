@@ -10,18 +10,18 @@
 *.code-workspace
 
 # Images folder
-images/
+images/*
 .png
 .jpg
 
 # Temp folder
-temp/
+temp/*
 .zip*
 
 
 # Keep folders structure
-images/*
-temp/*
+#images/*
+#temp/*
 !images/.gitkeep
 !temp/.gitkeep
 
