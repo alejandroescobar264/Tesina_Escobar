@@ -20,7 +20,8 @@ temp/
 
 
 # Keep folders structure
-#Salidas/*
+images/*
+temp/*
 !images/.gitkeep
 !temp/.gitkeep
 
