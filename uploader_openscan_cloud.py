@@ -1,5 +1,5 @@
 """
-Scrip utilizado para subir el las imágenes de fotogrametría al servidor de OpenScan Cloud.
+Script utilizado para subir el las imágenes de fotogrametría al servidor de OpenScan Cloud.
 
 OpenScan Cloud es una API web de fotogrametría descentralizada, abierta y gratuita.
 
