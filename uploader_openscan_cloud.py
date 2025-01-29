@@ -1,3 +1,17 @@
+"""
+Scrip utilizado para subir el las imágenes de fotogrametría al servidor de OpenScan Cloud.
+
+OpenScan Cloud es una API web de fotogrametría descentralizada, abierta y gratuita.
+
+La API se puede utilizar como un complemento para los equipos de fotogrametría.
+Lo único que se necesita para iniciar una reconstrucción es un token específico del usuario.
+(Enviar un mail a cloud@openscan.eu con el nombre y apellido para recibir un token gratis)
+
+La aplicación es totalmente gratuita. Los datos se transfieren a través de Dropbox y se almacenan/procesan
+en los servidores locales de OpenScan (Alemania). 
+    
+"""
+
 import os
 import requests
 import time
