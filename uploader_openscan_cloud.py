@@ -8,6 +8,7 @@ from zipfile import ZipFile
 COLOR_GREEN = "\033[92m"
 COLOR_BLUE = "\033[94m"
 COLOR_RED = "\033[91m"
+COLOR_ORANGE = "\033[38;5;208m"
 COLOR_RESET = "\033[0m"
 
 
@@ -123,7 +124,7 @@ def select_folders(base_dir):
     for i, folder in enumerate(folders):
         print(f"{i + 1}. {folder}")
 
-    selected = input(f"{COLOR_BLUE}[INPUT] Ingresa los números de las carpetas que deseas procesar (separados por comas): {COLOR_RESET}")
+    selected = input(f"{COLOR_ORANGE}[INPUT] Ingresa los números de las carpetas que deseas procesar (separados por comas): {COLOR_RESET}")
     selected_indices = [int(i.strip()) - 1 for i in selected.split(",") if i.strip().isdigit() and 0 <= int(i.strip()) - 1 < len(folders)]
     
     if not selected_indices:
@@ -135,7 +136,7 @@ def select_folders(base_dir):
     for folder in selected_folders:
         print(f"- {folder}")
 
-    confirm = input(f"{COLOR_BLUE}[INPUT] ¿Procesar las carpetas seleccionadas? (S/n): {COLOR_RESET}").strip().lower()
+    confirm = input(f"{COLOR_ORANGE}[INPUT] ¿Procesar las carpetas seleccionadas? (S/n): {COLOR_RESET}").strip().lower()
     if confirm == 'n':
         print(f"{COLOR_BLUE}[INFO] Procesamiento cancelado.{COLOR_RESET}")
         return []
@@ -184,9 +185,11 @@ def zipAndSplit(imagelist):
     
     """Comprime las imágenes y las divide en partes si es necesario."""
     
-    print(f"{COLOR_GREEN}[STEP] Comprimiendo imágenes...{COLOR_RESET}")
+    print(f"{COLOR_GREEN}[STEP] Comprimiendo imágenes...{COLOR_RESET}")       
     for i in os.listdir(dir_temp):
-        os.remove(os.path.join(dir_temp, i))
+        if i != ".gitkeep":
+            os.remove(os.path.join(dir_temp, i))
+
 
     projectname = str(int(time.time()*100)) + '-OSC.zip'
     file = os.path.join(dir_temp, projectname)
@@ -236,7 +239,7 @@ while True:
         zipAndSplit(imagelist)
         uploadAndStart(msg['partslist'], msg['ulink'])
     
-    continuar = input(f"{COLOR_BLUE}[INPUT] ¿Deseas procesar otra carpeta? (S/n): {COLOR_RESET}").strip().lower()
+    continuar = input(f"{COLOR_ORANGE}[INPUT] ¿Deseas procesar otra carpeta? (S/n): {COLOR_RESET}").strip().lower()
     if continuar == 'n':
         print(f"{COLOR_GREEN}[INFO] Proceso finalizado.{COLOR_RESET}")
         break
