@@ -1,0 +1,166 @@
+---
+title: "Generalized Procrustes Analysis (GPA) and PCA for Multiple Files"
+author: "Escobar"
+date: "2025-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(geomorph)
+library(SlicerMorphR)
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(readr)
+library(patchwork)
+```
+
+## Definir rutas de archivos
+
+```{r paths}
+files <- tibble(
+  name = c("ventral", "dorsal", "rostral", "ventral", "dorsal","rostral", "d_r", "d_r"),
+  name_plot = c("Ventral", "Dorsal", "Rostral", "Ventral ", "Dorsal ", "Rostral ", "Dorsal+Rostral", "Dorsal+Rostral sin AMA-216"),
+  json = c(
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/ventral/2025-05-11_20_41_09/analysis.json",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal/2025-05-11_20_03_01/analysis.json",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/rostral/2025-05-13_03_12_32/analysis.json",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/ventral/2025-05-11_20_51_33_sin-ama216/analysis.json",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal/2025-05-11_20_25_43-sin_ama216/analysis.json",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/rostral/2025-05-13_03_17_51-sin_ama216/analysis.json",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal_rostral/2025-05-13_13_19_48/analysis.json",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal_rostral/2025-05-13_13_21_05-sin_ama216/analysis.json"
+  ),
+  metadata = c(
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/ventral/metadata_ventral.csv",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal/metadata_dorsal.csv",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/rostral/metadata_rostral.csv",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/ventral/metadata_ventral.csv",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal/metadata_dorsal.csv",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/rostral/metadata_rostral.csv",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal_rostral/metadata_dorsal_rostral.csv",
+    "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/GPA/dorsal_rostral/metadata_dorsal_rostral.csv"
+  )
+)
+```
+
+## Función para realizar GPA y PCA por archivo
+
+```{r analysis-function}
+analizar_gpa <- function(name, json, metadata, name_plot) {
+  log_data <- parser2(json)
+  LM <- log_data$LM
+  gpa <- gpagen(LM)
+  pca <- gm.prcomp(gpa$coords)
+
+  metadata_df <- read.csv(metadata)
+  metadata_df$ID <- factor(metadata_df$ID)
+  metadata_df$Species <- factor(metadata_df$Species)
+
+  pca_df <- as.data.frame(pca$x)
+  pca_df$ID <- dimnames(gpa$coords)[[3]]
+  #pca_df$ID_clean <- gsub(paste0("_", name, "$"), "", pca_df$ID)
+  pca_df$ID_clean <- sub("_.*", "", pca_df$ID)
+  pca_df <- left_join(pca_df, metadata_df, by = "ID")
+
+  # Guardar GPA y PCA a CSV
+  write.csv(data.frame(ID = dimnames(gpa$coords)[[3]], Csize = gpa$Csize), 
+            file = paste0("gpa_summary_", name_plot, ".csv"), row.names = FALSE)
+  write.csv(pca_df, file = paste0("pca_coords_", name_plot, ".csv"), row.names = FALSE)
+
+  # Preparar gráficos
+  var_explained <- pca$d^2 / sum(pca$d^2)
+
+  hull_df <- pca_df %>% group_by(Species) %>% slice(chull(Comp1, Comp2))
+  centroids <- pca_df %>% group_by(Species) %>% summarise(Comp1 = mean(Comp1), Comp2 = mean(Comp2))
+
+  species_counts <- pca_df %>%
+    count(Species) %>%
+    mutate(label = paste0("italic('", Species, "')~'(n=", n, ")'"))
+  species_labels <- setNames(
+    lapply(species_counts$label, function(lbl) parse(text = lbl)),
+    species_counts$Species
+  )
+
+  g <- ggplot(pca_df, aes(x = Comp1, y = Comp2, colour = Species)) +
+    geom_point(size = 3) +
+    geom_text_repel(aes(label = ID_clean), box.padding = 0.3) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_polygon(data = hull_df, aes(fill = Species), alpha = 0.2, color = NA) +
+    geom_point(data = centroids, aes(x = Comp1, y = Comp2), shape = 3, size = 2, color = "black") +
+    scale_color_discrete(labels = species_labels) +
+    scale_fill_discrete(labels = species_labels) +
+    labs(title = paste("PCA - ", name_plot, " landmarks"),
+         x = paste0("Dim1 (", round(var_explained[1] * 100, 1), "%)"),
+         y = paste0("Dim2 (", round(var_explained[2] * 100, 1), "%)")) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      legend.position = "bottom",
+      legend.box = "horizontal"
+      )
+
+  ggsave(paste0("PCA_plot_", name_plot, ".png"), g, width = 20, height = 15, units = "cm", dpi = 300)
+
+  list(name = name, name_plot = name_plot, gpa = gpa, pca = pca, pca_df = pca_df, plot = g)
+}
+```
+
+## Ejecutar análisis en los 6 archivos
+
+```{r run-analysis, results='hide', message=FALSE}
+
+resultados <- purrr::pmap(
+  files,
+  function(name, json, metadata, name_plot) {
+    analizar_gpa(name = name, json = json, metadata = metadata, name_plot = name_plot)
+  }
+)
+
+```
+
+## Mostrar gráficos y resultados
+
+```{r show-results, echo=FALSE}
+for (res in resultados) {
+  cat("### Resultados para:", res$name, "\n")
+  print(summary(res$gpa))
+  print(summary(res$pca))
+  print(res$plot)
+}
+```
+
+```{r}
+# Nombres de los gráficos a combinar (usa los de name_plot)
+plots_to_combine <- c("Dorsal ", "Ventral ", "Rostral ")
+
+# Filtrar y extraer los gráficos
+plots_seleccionados <- resultados %>%
+  keep(~ .x$name_plot %in% plots_to_combine) %>%
+  map("plot")
+
+# Quitar leyenda de todos excepto el primero
+plots_sin_leyenda <- map2(plots_seleccionados, seq_along(plots_seleccionados), function(p, i) {
+  if (i == 1) {
+    p  # mantener leyenda solo en el primero
+  } else {
+    p + theme(legend.position = "none")
+  }
+})
+
+# Combinar con etiquetas y leyenda única debajo
+combined_plot <- wrap_plots(plots_sin_leyenda, ncol = length(plots_sin_leyenda)) +
+  plot_annotation(tag_levels = "A") & 
+  theme(legend.position = "bottom")
+
+# Mostrar
+#combined_plot
+
+# Guardar si se desea
+ggsave("PCA_combined_plot.png", combined_plot, width = 50, height = 15, units = "cm", dpi = 300)
+
+```
+

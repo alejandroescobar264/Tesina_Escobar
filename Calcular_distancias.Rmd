@@ -1,0 +1,298 @@
+---
+title: "Analisis_conservacion"
+author: "Escobar"
+date: "2025-05-16"
+output: html_document
+---
+
+```{r setup}
+library(rentrez)
+library(seqinr)
+library(ape)
+library(ggplot2)
+library(pheatmap)
+library(dplyr)
+library(Biostrings)
+library(ape)
+library(msa)
+library(phangorn)
+```
+
+## Parametros
+
+```{r}
+genes <- c("BMP2", "BMP4", "BMP5", "BMP7", "RUNX2", "SOX9", "PAX7", "PAX9", 
+           "MSX1", "MSX2", "FGF8", "SHH", "WNT5A", "MSI2")
+
+especies <- c(
+  "Molossus molossus",        # Murciélago moloso común
+  "Saccopteryx bilineata",    # Murciélago de dos líneas
+  "Eptesicus fuscus",         # Murciélago marrón grande
+  "Pipistrellus kuhlii",      # Murciélago pipistrelle de Kuhl
+  "Desmodus rotundus",        # Murciélago vampiro común
+  "Phyllostomus discolor",   # Murciélago de hocico corto
+  "Miniopterus natalensis",
+  "Saccopteryx leptura",
+  "Myotis brandtii",
+  "Artibeus jamaicensis",
+  "Phyllostomus hastatus"
+)
+
+# Convertimos nombres a IDs compatibles con FASTA
+especies_ids <- gsub(" ", "_", especies)
+```
+
+## Función para descargar proteínas
+
+```{r}
+descargar_proteina <- function(gen, especie, carpeta = "fasta_por_gen") {
+  search_term <- paste0(gen, "[Gene] AND ", especie, "[Organism] AND srcdb_refseq[PROP]")
+  res <- entrez_search(db = "protein", term = search_term, retmax = 1)
+  
+  if (res$count > 0) {
+    seq_id <- res$ids[1]
+    seq_fasta <- entrez_fetch(db = "protein", id = seq_id, rettype = "fasta")
+    if (!dir.exists(carpeta)) dir.create(carpeta)
+    
+    file_name <- paste0(carpeta, "/", gen, "_", gsub(" ", "_", especie), ".fasta")
+    write(seq_fasta, file = file_name)
+    
+    message("✓ ", gen, " - ", especie)
+  } else {
+    warning("✗ No se encontró: ", gen, " en ", especie)
+  }
+}
+
+```
+
+## Descargar y organizar FASTA por gen
+
+```{r}
+for (gen in genes) {
+  fasta_gen <- c()
+  for (esp in especies) {
+    file <- paste0("fasta_por_gen/", gen, "_", gsub(" ", "_", esp), ".fasta")
+    if (!file.exists(file)) {
+      descargar_proteina(gen, esp)
+    }
+    if (file.exists(file)) {
+      lines <- readLines(file)
+      fasta_gen <- c(fasta_gen, lines)
+    }
+  }
+  # Guardar FASTA por gen
+  writeLines(fasta_gen, paste0("fasta_por_gen/combinados/", gen, ".fasta"))
+}
+```
+
+## Alineamiento y cálculo de distancias
+
+```{r}
+# Carpeta donde están los alineamientos
+carpeta_aln <- "fasta_por_gen/alineamientos"
+
+# Carpeta con alineamientos
+archivos <- list.files(carpeta_aln, pattern = "_aln\\.fasta$", full.names = TRUE)
+
+# Lista para guardar distancias
+distancias <- list()
+
+# Función para extraer especie de nombre
+extraer_especie <- function(header) {
+  especie <- sub(".*\\[([^]]+)\\].*", "\\1", header)
+  gsub(" ", "_", especie)
+}
+
+# Procesar cada archivo
+for (archivo in archivos) {
+  gen <- sub("_aln\\.fasta$", "", basename(archivo))
+  
+  # Leer secuencias directamente como AAStringSet
+  seqs <- tryCatch({
+    readAAStringSet(archivo)
+  }, error = function(e) {
+    message("❌ Error leyendo ", archivo)
+    return(NULL)
+  })
+  if (is.null(seqs)) next
+  
+  # Extraer nombres de especie de los headers
+  especies <- sapply(names(seqs), extraer_especie)
+  names(seqs) <- especies  # Reemplazar los nombres en el objeto AAStringSet
+  
+  # Convertir a phyDat
+  aln_phy <- tryCatch({
+    pd <- as.phyDat(seqs, type = "AA")
+    names(pd) <- names(seqs)  # Asegurarse de que los nombres estén bien en phyDat
+    pd
+  }, error = function(e) {
+    message("❌ Error convirtiendo a phyDat en ", gen)
+    return(NULL)
+  })
+  if (is.null(aln_phy)) next
+  
+  # Calcular distancia solo si hay al menos 2 especies
+  if (length(aln_phy) >= 2) {
+    dist <- tryCatch({
+      dist.ml(aln_phy, model = "JTT")
+    }, error = function(e) {
+      message("❌ Error calculando distancias para ", gen)
+      return(NULL)
+    })
+    
+    if (!is.null(dist)) {
+      distancias[[gen]] <- as.matrix(dist)
+    }
+  } else {
+    message("⚠️ Gen omitido (menos de 2 especies): ", gen)
+  }
+}
+
+# Verificar que haya datos
+if (length(distancias) == 0) stop("No se pudieron calcular distancias.")
+```
+
+
+## Alineamientos y Distancias a partir de archivos
+```{r}
+# Carpeta donde están los alineamientos
+carpeta_aln <- "fasta_por_gen/alineamientos"
+
+# Carpeta donde están las matrices de distancia
+carpeta_dist <- file.path(carpeta_aln, "dist")
+
+# Listar archivos de alineamientos y distancias
+archivos_aln <- list.files(carpeta_aln, pattern = "_aln\\.fasta$", full.names = TRUE)
+archivos_dist <- list.files(carpeta_dist, pattern = "\\.dist$", full.names = TRUE)
+
+# Función para extraer especie entre corchetes en header
+extraer_especie <- function(header) {
+  especie <- sub(".*\\[([^]]+)\\].*", "\\1", header)
+  gsub(" ", "_", especie)
+}
+
+# Crear diccionario ID truncado (primeros 10 caracteres) -> especie
+id_trunc_to_especie <- list()
+
+for (archivo in archivos_aln) {
+  aln <- tryCatch(readAAStringSet(archivo), error = function(e) NULL)
+  if (is.null(aln)) next
+  
+  headers <- names(aln)
+  
+  ids_completos <- sub(" .*", "", headers)            # Ejemplo: XP_066092063.1
+  ids_truncados <- substr(ids_completos, 1, 10)       # Ejemplo: XP_0660920
+  especies <- sapply(headers, extraer_especie)
+  
+  nuevos_ids <- setNames(especies, ids_truncados)
+  id_trunc_to_especie <- c(id_trunc_to_especie, nuevos_ids)
+}
+
+# Quitar duplicados manteniendo el primero
+id_trunc_to_especie <- id_trunc_to_especie[!duplicated(names(id_trunc_to_especie))]
+id_trunc_to_especie <- unlist(id_trunc_to_especie)
+
+# Lista para guardar matrices de distancia con nombres de especie
+distancias <- list()
+
+# Leer y procesar cada archivo .dist
+for (archivo in archivos_dist) {
+  gen <- sub("\\.dist$", "", basename(archivo))
+  
+  lineas <- readLines(archivo)
+  n_seqs <- as.integer(lineas[1])  # número de secuencias
+  
+  # Quitar la primer línea (número secuencias)
+  contenido <- lineas[-1]
+  
+  # Separar tokens por espacios y eliminar vacíos
+  tokens <- unlist(strsplit(contenido, "\\s+"))
+  tokens <- tokens[tokens != ""]
+  
+  # Extraer los IDs (tokens que empiezan con XP_)
+  ids <- unique(tokens[grepl("^XP_", tokens)])
+  if (length(ids) != n_seqs) {
+    warning("Número de IDs no coincide con el número de secuencias en ", gen)
+    next
+  }
+  
+  # Extraer los valores numéricos (no IDs)
+  valores <- as.numeric(tokens[!grepl("^XP_", tokens)])
+  
+  # Construir matriz vacía
+  matriz <- matrix(0, nrow = n_seqs, ncol = n_seqs)
+  
+  # Llenar la matriz triangular superior con los valores (distancias simétricas)
+  k <- 1
+  for (i in 1:n_seqs) {
+    for (j in i:n_seqs) {
+      if (i != j) {
+        matriz[i, j] <- valores[k]
+        matriz[j, i] <- valores[k]
+        k <- k + 1
+      }
+    }
+  }
+  
+  # Mapear IDs truncados a especies
+  ids_trunc <- substr(ids, 1, 10)
+  nombres <- id_trunc_to_especie[ids_trunc]
+  
+  # Control de IDs sin correspondencia
+  if (any(is.na(nombres))) {
+    warning("IDs sin especie para ", gen, ": ", paste(ids[is.na(nombres)], collapse = ", "))
+    next
+  }
+  
+  rownames(matriz) <- colnames(matriz) <- nombres
+  distancias[[gen]] <- matriz
+}
+```
+
+
+## Grafico mapa de distancias promedio
+
+```{r}
+# Crear una matriz vacía para almacenar los promedios especie-gen
+especies_presentes <- unique(unlist(lapply(distancias, rownames)))
+matriz_especie_gen <- matrix(NA, nrow = length(names(distancias)), ncol = length(especies_presentes),
+                             dimnames = list(names(distancias), especies_presentes))
+
+# Llenar la matriz con promedios por especie
+for (gen in names(distancias)) {
+  mat <- distancias[[gen]]
+  especies_gen <- rownames(mat)
+  
+  for (esp in especies_gen) {
+    # Calcular el promedio de distancias entre esa especie y las demás
+    otras <- setdiff(especies_gen, esp)
+    prom <- mean(mat[esp, otras], na.rm = TRUE)
+    matriz_especie_gen[gen, esp] <- prom
+  }
+}
+
+# Guardar como imagen PNG
+png("heatmap_diferencias_gen_especie_.png", 
+    width = 20, 
+    height = 15, 
+    units = "cm", 
+    res = 300)
+
+# Crear heatmap con valores numéricos y nombres visibles
+pheatmap(matriz_especie_gen,
+         cluster_rows = TRUE,
+         cluster_cols = TRUE,
+         display_numbers = TRUE,
+         number_format = "%.4f",
+         number_color = "black",
+         fontsize_row = 12,
+         fontsize_col = 11,
+         fontsize_number = 9,
+         angle_col = 45,
+         main = "Average gene divergence per species - Distance JTT algorithm")
+
+dev.off()
+```
+
+
+
