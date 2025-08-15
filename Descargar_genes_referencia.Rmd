@@ -1,0 +1,72 @@
+---
+title: "Descarga de genes morfogenéticos en Molossus molossus"
+author: "Escobar"
+date: "2025-06-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(rentrez)
+library(seqinr)
+library(dplyr)
+```
+
+### Parámetros
+```{r}
+# Lista de genes a buscar (morfogénesis craneal)
+genes <- c("BMP2", "BMP4", "BMP5", "BMP7", "RUNX2", "SOX9", 
+           "PAX7", "PAX9", "MSX1", "MSX2", "FGF8", "SHH", 
+           "WNT5A", "MSI2")
+
+# Especie de interés
+especie <- "Molossus molossus"
+
+```
+
+### Función de descarga de secuencia de nucleótidos
+```{r}
+# Descargar secuencia de nucleótidos para un gen dado
+descargar_nucleotido <- function(gen, especie, carpeta = "fasta_nt_ref") {
+  search_term <- paste0(gen, "[Gene] AND ", especie, "[Organism] AND srcdb_refseq[PROP]")
+
+  res <- entrez_search(db = "nuccore", term = search_term, retmax = 1)
+
+  if (res$count > 0) {
+    seq_id <- res$ids[1]
+    seq_fasta <- entrez_fetch(db = "nuccore", id = seq_id, rettype = "fasta")
+
+    if (!dir.exists(carpeta)) dir.create(carpeta)
+
+    file_name <- paste0(carpeta, "/", gen, "_", gsub(" ", "_", especie), ".fasta")
+    write(seq_fasta, file = file_name)
+
+    message("✓ ", gen, " descargado para ", especie)
+    return(TRUE)
+  } else {
+    warning("✗ No se encontró: ", gen, " en ", especie)
+    return(FALSE)
+  }
+}
+
+```
+
+### Descargar genes seleccionados
+```{r}
+for (gen in genes) {
+  descargar_nucleotido(gen, especie)
+}
+```
+
+### Concatenar todas las secuencias en un solo archivo
+```{r}
+fasta_files <- list.files("fasta_nt_ref", pattern = "\\.fasta$", full.names = TRUE)
+
+all_seqs <- sapply(fasta_files, readLines)
+all_seqs_flat <- unlist(all_seqs)
+
+writeLines(all_seqs_flat, "Molossus_molossus_genes_nt_ref.fasta")
+
+message("✓ Archivo 'Molossus_molossus_genes_nt_ref.fasta' generado.")
+
+```
+

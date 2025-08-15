@@ -1,0 +1,330 @@
+---
+title: "Sintenia"
+author: "Escobar"
+date: "2025-07-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(gggenomes)
+library(tidyverse)
+library(Biostrings)
+library(glue)
+```
+
+
+## Configuracion
+```{r}
+# Define species and genes
+species <- c("mEumNan1.1.hap1", "mMolAlv1.1.hap1", "mMolMol1.2.pri", 
+             "mMolNig1.2.hap1", "mMopCon1.1", "mTadBra1.3.pri")
+
+
+
+genes <- c("BMP2", "BMP4", "BMP5", "BMP7", "RUNX2", "SOX9", "PAX7", "PAX9", "MSX1", "MSX2", "FGF8", "SHH", "WNT5A", "MSI2")
+
+# Create paths to files
+fasta_dir <- "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/Analisis_R/sintenia/fasta"
+gff3_dir <- "/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/Analisis_R/sintenia/gff3"
+
+```
+
+## Lectura de archivos FASTA
+```{r}
+parse_fasta <- function(species, gene) {
+  file_path <- file.path(fasta_dir, glue("{species}_{gene}.fasta"))
+  
+  if (!file.exists(file_path)) {
+    warning(glue("Archivo FASTA no encontrado: {file_path}"))
+    return(NULL)
+  }
+  
+  seq <- readDNAStringSet(file_path)
+  tibble(
+    seq_id = names(seq),
+    length = width(seq),
+    species = species,
+    gene = gene
+  )
+}
+```
+
+## Lectura de archivos GFF3
+```{r}
+parse_gff <- function(species, gene) {
+  file_path <- file.path(gff3_dir, glue("{species}_{gene}.gff3"))
+  
+  if (!file.exists(file_path)) {
+    warning(glue("Archivo GFF3 no encontrado: {file_path}"))
+    return(NULL)
+  }
+  
+  tryCatch({
+    # Leer GFF3 con manejo de errores
+    gff <- read_gff3(file_path)
+    
+    # Limpieza de datos
+    gff_clean <- gff %>%
+      mutate(
+        feat_id = as.character(feat_id),  # Asegurar que feat_id sea texto
+        species = species,
+        gene = gene,
+        seq_id = str_remove(seq_id, "\\|.*")  # Limpiar ID de secuencia
+      ) %>%
+      filter(type %in% c("gene", "exon", "CDS"))  # Conservar solo genes, exones y CDS
+    
+    return(gff_clean)
+    
+  }, error = function(e) {
+    warning(glue("Error al procesar {file_path}: {e$message}"))
+    return(NULL)
+  })
+}
+```
+
+## Carga de datos
+```{r}
+# Cargar datos FASTA
+message("Cargando archivos FASTA...")
+seqs <- map_df(species, function(sp) {
+  message(glue("Procesando especie: {sp}"))
+  map_df(genes, ~parse_fasta(sp, .x))
+})
+
+# Cargar datos GFF3
+message("\nCargando archivos GFF3...")
+features <- map_df(species, function(sp) {
+  message(glue("Procesando especie: {sp}"))
+  map_df(genes, ~parse_gff(sp, .x))
+})
+
+# Limpieza final de datos
+seqs_clean <- seqs %>%
+  drop_na() %>%
+  mutate(
+    genome = paste(species, gene, sep = "|"),
+    bin_id = genome
+  )
+
+features_clean <- features %>%
+  drop_na() %>%
+  mutate(
+    genome = paste(species, gene, sep = "|"),
+    bin_id = genome
+  )
+```
+
+## Visualización de sintenia con gggenomes
+```{r}
+# Crear objeto gggenomes
+gg <- gggenomes(
+  seqs = seqs_clean,
+  genes = features_clean %>% filter(type == "CDS")  # Mostrar solo regiones codificantes
+)
+
+# Generar gráfico de sintenia
+synteny_plot <- gg +
+  geom_seq(color = "gray50", size = 1) +           # Dibujar secuencias
+  geom_gene(aes(fill = gene), alpha = 0.8) +      # Colorear por gen
+  geom_bin_label(size = 3, vjust = -0.5) +        # Etiquetas de especie-gen
+  scale_fill_viridis_d(option = "plasma") +       # Paleta de colores
+  facet_wrap(~species, scales = "free_x") +       # Separar por especie
+  labs(
+    title = "Conservación de sintenia en murciélagos",
+    subtitle = "Análisis de 14 genes en 6 especies",
+    fill = "Gen"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_blank(),
+    panel.grid.major.y = element_blank()
+  )
+
+# Mostrar gráfico
+print(synteny_plot)
+```
+## Análisis comparativo de un gen específico
+```{r}
+# Comparar estructura de un gen (ej. BMP2) en todas las especies
+bmp2_plot <- gggenomes(
+  seqs = seqs_clean %>% filter(gene == "BMP2"),
+  genes = features_clean %>% filter(gene == "BMP2", type == "CDS")
+) +
+  geom_seq() +
+  geom_gene(aes(fill = species)) +
+  geom_bin_label() +
+  labs(title = "Comparación de BMP2 en murciélagos") +
+  theme_minimal()
+
+print(bmp2_plot)
+```
+
+## TODO
+```{r}
+# Función mejorada para procesar GFF3 incluyendo todas las características
+parse_gff_complete <- function(species, gene) {
+  file_path <- file.path(gff3_dir, glue("{species}_{gene}.gff3"))
+  if (!file.exists(file_path)) return(NULL)
+  
+  tryCatch({
+    gff <- read_gff3(file_path) %>%
+      mutate(
+        species = species,
+        gene = gene,
+        seq_id = str_remove(seq_id, "\\|.*")
+      )
+    
+    # Identificar tipos de características únicas
+    feature_types <- unique(gff$type)
+    message(glue("Características detectadas en {species}_{gene}: {paste(feature_types, collapse=', ')}"))
+    
+    return(gff)
+  }, error = function(e) {
+    warning(glue("Error al procesar {file_path}: {e$message}"))
+    return(NULL)
+  })
+}
+
+# Cargar datos con todas las características
+features_complete <- map_df(species, function(sp) {
+  map_df(genes, ~parse_gff_complete(sp, .x))
+})
+
+# Filtrar y categorizar características
+features_to_plot <- features_complete %>%
+  filter(type %in% c("gene", "mRNA", "exon", "CDS", 
+                    "five_prime_UTR", "three_prime_UTR",
+                    "start_codon", "stop_codon",
+                    "transcription_start_site", "transcription_end_site")) %>%
+  mutate(
+    feature_type = case_when(
+      type == "gene" ~ "Gene",
+      type == "mRNA" ~ "Transcript",
+      type == "exon" ~ "Exon",
+      type == "CDS" ~ "CDS",
+      type == "five_prime_UTR" ~ "5' UTR",
+      type == "three_prime_UTR" ~ "3' UTR",
+      type == "start_codon" ~ "Start codon",
+      type == "stop_codon" ~ "Stop codon",
+      type == "transcription_start_site" ~ "TSS",
+      type == "transcription_end_site" ~ "TES",
+      TRUE ~ "Other"
+    ),
+    feature_type = factor(feature_type, levels = c("Gene", "Transcript", "Exon", "CDS", 
+                                                 "5' UTR", "3' UTR", "Start codon", 
+                                                 "Stop codon", "TSS", "TES", "Other"))
+  )
+
+# Paleta de colores para las características
+feature_colors <- c(
+  "Gene" = "#1f77b4",
+  "Transcript" = "#ff7f0e",
+  "Exon" = "#2ca02c",
+  "CDS" = "#d62728",
+  "5' UTR" = "#9467bd",
+  "3' UTR" = "#8c564b",
+  "Start codon" = "#e377c2",
+  "Stop codon" = "#7f7f7f",
+  "TSS" = "#bcbd22",
+  "TES" = "#17becf",
+  "Other" = "#cccccc"
+)
+
+# Función para graficar un gen específico
+plot_gene_structure <- function(species_name, gene_name) {
+  gene_data <- features_to_plot %>%
+    filter(species == species_name, gene == gene_name)
+  
+  if (nrow(gene_data) == 0) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, label = "Datos no disponibles") +
+             theme_void())
+  }
+  
+  # Obtener la secuencia asociada
+  seq_data <- seqs_clean %>%
+    filter(species == species_name, gene == gene_name)
+  
+  ggplot(gene_data) +
+    # Línea de referencia del gen
+    geom_segment(
+      aes(x = 0, xend = max(seq_data$length), y = 0, yend = 0),
+      color = "gray50", size = 1
+    ) +
+    # Características genómicas
+    geom_segment(
+      data = filter(gene_data, feature_type %in% c("Gene", "Transcript")),
+      aes(x = start, xend = end, y = 0, yend = 0, color = feature_type),
+      size = 3, alpha = 0.7
+    ) +
+    geom_rect(
+      data = filter(gene_data, feature_type %in% c("Exon", "CDS", "5' UTR", "3' UTR")),
+      aes(xmin = start, xmax = end, ymin = -0.2, ymax = 0.2, fill = feature_type),
+      alpha = 0.8
+    ) +
+    geom_point(
+      data = filter(gene_data, feature_type %in% c("Start codon", "Stop codon", "TSS", "TES")),
+      aes(x = start, y = 0, color = feature_type),
+      size = 4, shape = 18
+    ) +
+    # Etiquetas
+    geom_text(
+      data = filter(gene_data, feature_type == "Gene"),
+      aes(x = (start + end)/2, y = 0.3, label = glue("{gene_name} | {species_name}")),
+      size = 4, fontface = "bold"
+    ) +
+    scale_color_manual(values = feature_colors) +
+    scale_fill_manual(values = feature_colors) +
+    scale_y_continuous(limits = c(-0.5, 0.5)) +
+    labs(
+      title = glue("Estructura génica: {gene_name} en {species_name}"),
+      x = "Posición en la secuencia (bp)",
+      y = "",
+      color = "Elemento",
+      fill = "Elemento"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      legend.position = "bottom"
+    )
+}
+
+# Ejemplo: Graficar BMP2 en mEumNan1.1.hap1
+bmp2_plot <- plot_gene_structure("mEumNan1.1.hap1", "SOX9")
+print(bmp2_plot)
+
+# Función para graficar todos los genes de una especie
+plot_species_genes <- function(species_name) {
+  species_genes <- features_to_plot %>%
+    filter(species == species_name) %>%
+    distinct(gene) %>%
+    pull()
+  
+  plots <- map(species_genes, ~plot_gene_structure(species_name, .x))
+  
+  # Combinar plots con patchwork
+  if (require(patchwork)) {
+    wrap_plots(plots, ncol = 2) +
+      plot_annotation(title = glue("Estructuras génicas en {species_name}"))
+  } else {
+    install.packages("patchwork")
+    library(patchwork)
+    wrap_plots(plots, ncol = 2) +
+      plot_annotation(title = glue("Estructuras génicas en {species_name}"))
+  }
+}
+
+# Ejemplo: Graficar todos los genes de mMolAlv1.1.hap1
+species_plot <- plot_species_genes("mMolAlv1.1.hap1")
+print(species_plot)
+
+# Exportar gráficos
+ggsave("gene_structure_plot.png", bmp2_plot, width = 12, height = 6, dpi = 300)
+ggsave("species_genes_plot.png", species_plot, width = 16, height = 20, dpi = 300)
+```
+

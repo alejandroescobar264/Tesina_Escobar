@@ -1,0 +1,219 @@
+---
+title: "Análisis de SNPs en genes de morfogénesis craneal"
+author: "Escobar"
+date: "2025-08-08"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(vcfR)
+library(glue)
+library(ggplot2)
+library(patchwork)
+library(ggtext)
+```
+
+## Leer todos los archivos VCF
+
+```{r leer-vcfs}
+vcf_files <- list.files("/home/alejandro/Documentos/Bioinfo/Tesina_Escobar/Secuencias/MSA/VCF", pattern = "*.vcf$", full.names = TRUE)
+nombres_genes <- tools::file_path_sans_ext(basename(vcf_files))
+
+vcfs <- map(vcf_files, read.vcfR)
+names(vcfs) <- nombres_genes
+
+```
+
+## Funciones auxiliares
+
+```{r funciones-snps}
+es_transicion <- function(ref, alt) {
+  transitions <- c("AG", "GA", "CT", "TC")
+  paste0(ref, alt) %in% transitions
+}
+
+clasificar_mutacion <- function(ref, alt) {
+  if (is.na(ref) || is.na(alt)) return(NA)
+  
+  if (nchar(ref) == 1 && nchar(alt) == 1) {
+    if (es_transicion(ref, alt)) return("Transición")
+    else return("Transversión")
+  }
+  
+  if (nchar(ref) != nchar(alt)) return("Indel")
+  if (str_detect(alt, ",")) return("Multialélico")
+  
+  return("Otro")
+}
+
+```
+
+## Procesar cada VCF y generar resumen
+
+```{r procesar-vcfs}
+nombres_especies <- c(
+  "mMolMol1.2.pri"   = "Molossus molossus",
+  "mMolAlv1.1.hap1"  = "Molossus alvarezi",
+  "mMolNig1.2.hap1"  = "Molossus nigricans",
+  "mEumNan1.1.hap1"  = "Eumops nanus",
+  "mMopCon1.1"       = "Mops condylurus",
+  "mTadBra1.3.pri"   = "Tadarida brasiliensis"
+)
+
+snp_summary <- map_dfr(names(vcfs), function(gen) {
+  vcf <- vcfs[[gen]]
+  vdf <- as.data.frame(vcf@fix)
+  genos <- extract.gt(vcf)
+  geno_df <- as.data.frame(genos)
+
+  vdf_proc <- vdf %>%
+    select(CHROM = 1, POS = 2, REF = 4, ALT = 5) %>%
+    mutate(
+      POS = as.numeric(POS),
+      REF = as.character(REF),
+      ALT = as.character(ALT),
+      TIPO = map2_chr(REF, ALT, clasificar_mutacion),
+      Gene = gen
+    ) %>%
+    bind_cols(geno_df) %>%
+    pivot_longer(cols = -(CHROM:Gene), names_to = "Especie", values_to = "GT") %>%
+    filter(!is.na(GT), GT != "./.") %>%
+    mutate(
+      Presente = str_detect(GT, "[1-9]"),
+      Especie_ID = sub(".*\\|", "", Especie),  # Extraer sólo lo que está después del "|"
+      Especie = recode(Especie_ID, !!!nombres_especies)
+    ) %>%
+    select(-Especie_ID)  # Eliminar columna auxiliar
+
+  return(vdf_proc)
+})
+
+
+```
+
+## SNPs por tipo de mutación y gen
+
+```{r grafico-barra-mutation-type}
+ggplot(snp_summary, aes(x = Gene, fill = TIPO)) +
+  geom_bar(position = "stack") +
+  labs(title = "Cantidad de SNPs por tipo de mutación",
+       x = "Gen", y = "Cantidad de SNPs", fill = "Tipo") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Distribución de SNPs por posición
+
+```{r snps-gen-distribucion, fig.width=10, fig.height=12}
+ggplot(snp_summary, aes(x = POS)) +
+  geom_histogram(binwidth = 25, fill = "steelblue", color = "orange") +
+  facet_wrap(~Gene, scales = "free_x", ncol = 2) +
+  labs(title = "Distribución de SNPs a lo largo de cada gen",
+       x = "Posición", y = "Frecuencia") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 13)
+  )
+
+```
+
+## SNPs por tipo y especie
+
+```{r SNP-tipo-especie}
+ggplot(snp_summary, aes(x = Especie, fill = TIPO)) +
+  geom_bar(position = "stack") +
+  labs(title = "SNPs por especie y tipo de mutación",
+       x = "Especie", y = "Cantidad de SNPs") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+## Frecuencia de SNPs por especie
+```{r, fig.width=10, fig.height=13}
+snp_summary %>%
+  group_by(Especie, Gene) %>%
+  summarise(Frecuencia_ALT = mean(Presente), .groups = "drop") %>%
+  mutate(
+    EtiquetaY = paste0("<i>", Especie, "</i> (", Gene, ")")  # Especie en itálica, gen normal
+  ) %>%
+  ggplot(aes(x = EtiquetaY, y = Frecuencia_ALT, fill = Gene)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Frecuencia de alelos alternativos por especie y gen",
+    y = "Frecuencia", x = NULL
+  ) +
+  scale_fill_brewer(palette = "Paired") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 16),
+    axis.text.y = element_markdown(size = 14),  # interpreta el HTML para itálica
+    axis.text.x = element_text(size = 13),
+    legend.text = element_text(size = 13)
+  )
+
+```
+## prueba
+```{r, fig.width=10, fig.height=13}
+library(dplyr)
+library(ggplot2)
+library(ggtext)
+
+# Colores por especie
+colores_especies <- c(
+  "Molossus molossus" = "darkgreen",
+  "Molossus alvarezi" = "royalblue",
+  "Eumops nanus" = "firebrick",
+  "Molossus nigricans" = "blue",
+  "Tadarida brasiliensis" = "magenta",
+  "Mops condylurus" = "darkorange"
+)
+
+df_plot <- snp_summary %>%
+  group_by(Especie, Gene) %>%
+  summarise(Frecuencia_ALT = mean(Presente), .groups = "drop") %>%
+  mutate(
+    Color = colores_especies[Especie],
+    EtiquetaY = paste0("<span style='color:", Color, "'><i>", Especie, "</i></span> (", Gene, ")")
+  ) %>%
+  arrange(Frecuencia_ALT) %>%
+  mutate(EtiquetaY = factor(EtiquetaY, levels = EtiquetaY))
+
+# Gráfico
+ggplot(df_plot, aes(x = EtiquetaY, y = Frecuencia_ALT, fill = Gene)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Frecuencia de alelos alternativos por especie y gen",
+    y = "Frecuencia", x = NULL
+  ) +
+  scale_fill_viridis_d(option = "turbo") +  # Mejor paleta para genes
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 16),
+    axis.text.y = element_markdown(size = 14, face = "bold"),  # interpreta los colores HTML
+    axis.text.x = element_text(size = 13),
+    legend.text = element_text(size = 13)
+  )
+
+```
+
+
+## Tabla resumen por gen y tipo de mutación
+```{r}
+resumen_tabla <- snp_summary %>%
+  group_by(Gene, TIPO) %>%
+  summarise(Cantidad = n(), .groups = "drop") %>%
+  pivot_wider(names_from = TIPO, values_from = Cantidad, values_fill = 0)
+
+resumen_tabla
+
+```
+

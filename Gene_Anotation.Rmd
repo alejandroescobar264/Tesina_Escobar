@@ -1,0 +1,62 @@
+---
+title: "Gene Anotation"
+author: "Escobar"
+date: "2025-05-14"
+output: html_document
+---
+
+```{r}
+library(mygene)
+
+genes <- c("BMP2", "BMP4", "BMP5", "BMP7", "RUNX2", "SOX9", "PAX7", "PAX9", "MSX1", "MSX2",
+           "FGF8", "SHH", "WNT5A", "MSI2")  # Notar que corregí 'Musashi-2' a 'MSI2'
+
+info <- queryMany(genes, scopes="symbol", species="human", fields="symbol,name,summary,go,entrezgene,ensembl")
+
+head(info)
+
+```
+
+```{r}
+# Cargar paquetes
+library(mygene)
+library(dplyr)
+library(gt)
+library(readr)
+
+# Lista de genes
+genes <- c("BMP2", "BMP4", "BMP5", "BMP7", "RUNX2", "SOX9", "PAX7", "PAX9", 
+           "MSX1", "MSX2", "FGF8", "SHH", "WNT5A", "MSI2")
+
+# Consulta a MyGene.info
+info <- queryMany(genes,
+                  scopes = "symbol",
+                  species = "human",
+                  fields = c("symbol", "name", "summary", "go", "entrezgene", "ensembl"))
+
+# Convertir a data.frame clásico
+info_df <- as.data.frame(info)
+
+# Seleccionar y renombrar columnas
+tabla_genes <- info_df %>%
+  select(symbol, name, summary, entrezgene, ensembl.gene) %>%
+  rename(
+    Símbolo = symbol,
+    Nombre = name,
+    Función = summary,
+    Entrez_ID = entrezgene,
+    Ensembl_ID = ensembl.gene
+  )
+
+# Mostrar tabla bonita en el informe
+tabla_genes %>%
+  gt() %>%
+  tab_header(
+    title = "Resumen de genes asociados a morfogénesis craneal"
+  )
+
+# Guardar como CSV
+write_csv(tabla_genes, "resumen_genes_morfogenesis.csv")
+
+```
+

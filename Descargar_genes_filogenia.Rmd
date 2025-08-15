@@ -1,0 +1,95 @@
+---
+title: "Descarga de genes morfogenéticos en vertebrados"
+author: "Escobar"
+date: "2025-05-15"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(rentrez)
+library(seqinr)
+library(dplyr)
+```
+
+### Parámetros
+
+```{r}
+# Lista de genes a buscar
+#genes <- c("BMP2", "BMP4", "BMP5", "BMP7", "RUNX2", "SOX9", "PAX7", "PAX9", "MSX1", "MSX2", "FGF8", "SHH", "WNT5A", "MSI2")
+
+genes <- c("RUNX2")
+
+# Lista ampliada de especies con nombres comunes comentados
+especies <- c(
+  "Molossus molossus",        # Murciélago moloso común
+  "Molossus alvarezi",        # Murciélago moloso de Álvarez
+  "Molossus nigricans",       # Murciélago moloso negro
+  "Saccopteryx bilineata",    # Murciélago de dos líneas
+  "Taphozous melanopogon",    # Murciélago de tumba de barba negra
+  "Myotis lucifugus",         # Murciélago marrón pequeño
+  "Eptesicus fuscus",         # Murciélago marrón grande
+  "Pipistrellus kuhlii",      # Murciélago pipistrelle de Kuhl
+  "Desmodus rotundus",        # Murciélago vampiro común
+  "Glossophaga soricina",     # Murciélago nectarívoro común
+  "Phyllostomus discolor",    # Murciélago de hocico corto
+  "Homo sapiens",             # Humano
+  "Mus musculus",             # Ratón
+  "Canis lupus familiaris"    # Perro doméstico
+)
+```
+
+### Función de descarga por especie o taxonomía
+
+```{r}
+# Función general para descargar una proteína por gen de búsqueda
+descargar_proteina <- function(gen, especie, carpeta = "fasta_output") {
+  search_term <- paste0(gen, "[Gene] AND ", especie, "[Organism] AND srcdb_refseq[PROP]")
+  
+  res <- entrez_search(db = "protein", term = search_term, retmax = 1)
+  
+  if (res$count > 0) {
+    seq_id <- res$ids[1]
+    seq_fasta <- entrez_fetch(db = "protein", id = seq_id, rettype = "fasta")
+    
+    if (!dir.exists(carpeta)) dir.create(carpeta)
+    
+    file_name <- paste0(carpeta, "/", gen, "_", gsub(" ", "_", especie), ".fasta")
+    write(seq_fasta, file = file_name)
+    
+    message("✓ ", gen, " - ", especie, " descargado.")
+    return(TRUE)
+  } else {
+    warning("✗ No se encontró: ", gen, " en ", especie)
+    return(FALSE)
+  }
+}
+
+
+```
+
+## Descargar secuencias de las especies
+
+```{r}
+for (gen in genes) {
+  for (esp in especies) {
+    descargar_proteina(gen, esp)
+  }
+}
+
+```
+## Concatenar
+
+```{r}
+# Listar todos los archivos .fasta en la carpeta
+fasta_files <- list.files("fasta_output", pattern = "\\.fasta$", full.names = TRUE)
+
+# Leer y concatenar todo el contenido
+all_seqs <- sapply(fasta_files, readLines)
+all_seqs_flat <- unlist(all_seqs)
+
+# Guardar en un archivo único
+writeLines(all_seqs_flat, "concatenado_genes_proteinas.fasta")
+
+message("✓ Archivo FASTA concatenado creado como 'concatenado_genes_proteinas.fasta'")
+
+```
+

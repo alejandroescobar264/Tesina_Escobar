@@ -1,0 +1,453 @@
+---
+title: "Figuras_Tesina"
+author: "Escobar"
+date: "2025-05-07"
+output:
+  html_document:
+    df_print: paged
+---
+
+## R Markdown para generar figuras de la tesina
+
+## Análisis Exploratoiro
+
+
+```{r setup}
+#Setup
+library(tidyverse)
+library(magick)
+library(imager)
+library(scales)
+library(dplyr)
+library(tidyr)
+```
+
+### 📁 Cargar datos
+
+```{r}
+
+datos_crudos <- read_csv("Espécimenes - Modelos_3D.csv")
+datos <- datos_crudos %>%
+ select(-Notas)
+
+murcielagos <- read_csv("murcielagos_colores.csv")
+
+# Asegurar que las columnas clave sean factores
+murcielagos <- murcielagos %>%
+  mutate(
+    Especie = as.factor(Especie),
+    Sexo = as.factor(Sexo),
+    Tonalidad = as.factor(Tonalidad),
+    Model3D = as.logical(Model3D)
+  )
+
+```
+
+
+### ❌ Modelos 3D que fallaron (Model3D == FALSE)
+
+```{r}
+
+murcielagos %>%
+  filter(Model3D == FALSE) %>%
+  select(ID, Especie, Sexo, NumFotos, Tonalidad)
+
+```
+
+
+```{r}
+ggplot(murcielagos, aes(x = Model3D, fill = Tonalidad)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Porcentaje de modelos exitosos vs fallidos por tonalidad",
+    x = "¿Modelo 3D generado?",
+    y = "Porcentaje",
+    fill = "Tonalidad"
+  ) +
+  theme_minimal()
+```
+
+### 📊 Gráfico: Proporción de fallos por sexo
+
+```{r}
+
+ggplot(murcielagos, aes(x = Sexo, fill = Model3D)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    title = "Éxito de modelos 3D según el sexo del espécimen",
+    x = "Sexo",
+    y = "Porcentaje",
+    fill = "¿Modelo 3D exitoso?"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+```
+
+
+### 👁 Distribución de sexo por especie
+
+```{r}
+
+ggplot(murcielagos, aes(x = Especie, fill = Sexo)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Distribución de sexo por especie",
+    x = "Especie", y = "Cantidad",
+    fill = "Sexo"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+```
+
+
+### 🧬 Distribución de especies
+
+```{r}
+
+ggplot(murcielagos, aes(x = fct_infreq(Especie))) +
+  geom_bar(fill = "#6A9FB5") +
+  coord_flip() +
+  labs(
+    title = "Distribución de Especies de Molossus",
+    x = "Especie",
+    y = "Cantidad"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+### 🎨 Comparación de colores por especie
+
+```{r}
+# Expandir los colores a filas
+df_colores <- murcielagos %>%
+  select(ID, Especie, Colores) %>%
+  separate_rows(Colores, sep = ",") %>%
+  mutate(Colores = str_trim(Colores)) %>%
+  group_by(ID) %>%
+  mutate(pos = row_number()) %>%
+  ungroup()
+
+# Asegurar orden especie para visual
+df_colores <- df_colores %>%
+  mutate(ID = factor(ID, levels = unique(ID[order(Especie)])))
+
+# Gráfico tipo tira de colores
+ggplot(df_colores, aes(x = pos, y = ID, fill = Colores)) +
+  geom_tile(width = 1, height = 0.9) +
+  scale_fill_identity() +
+  facet_wrap(~Especie, scales = "free_y", ncol = 2) +
+  labs(
+    title = "Colores dominantes por espécimen agrupados por especie",
+    x = "Color (posición)", y = "Individuo"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.y = element_text(size = 8),
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold")
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+
+### 🌗 Influencia de la tonalidad en el éxito del modelo 3D
+
+```{r}
+
+ggplot(murcielagos, aes(x = Tonalidad, fill = Model3D)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "¿Influye la tonalidad en el éxito del modelo 3D?",
+    y = "Porcentaje de éxito",
+    fill = "Modelo generado"
+  ) +
+  theme_minimal()
+
+```
+
+### 📸 Número de fotos por sexo
+
+```{r}
+
+ggplot(murcielagos, aes(x = Sexo, y = NumFotos, fill = Sexo)) +
+  geom_boxplot() +
+  labs(
+    title = "Distribución del número de fotos por sexo",
+    x = "Sexo", y = "Cantidad de fotos"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(legend.position = "none")
+
+
+```
+
+
+### 📈 Número de fotos vs éxito del modelo
+
+```{r}
+
+ggplot(murcielagos, aes(x = Tonalidad, y = NumFotos, fill = Model3D)) +
+  geom_boxplot() +
+  labs(
+    title = "Cantidad de imágenes por tonalidad y éxito del modelo",
+    x = "Tonalidad",
+    y = "Número de imágenes",
+    fill = "Modelo 3D"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+
+```{r}
+murcielagos %>%            
+  group_by(Especie, Model3D) %>% 
+  summarise(n = n()) %>% 
+  ggplot(aes(Especie,n, fill=Model3D)) +
+  geom_col() +
+  theme_minimal() 
+```
+
+### 2. Modelos 3D por especie (barras)
+
+```{r}
+murcielagos %>%
+  group_by(Especie, Model3D) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  ggplot(aes(x = fct_reorder(Especie, n), y = n, fill = Model3D)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(title = "Cantidad de modelos 3D por especie",
+       x = "Especie", y = "Cantidad",
+       fill = "¿Tiene modelo 3D?") +
+  theme_light() 
+```
+
+### 3. Casos que fallaron (barras)
+
+```{r}
+murcielagos %>%
+  filter(Model3D == FALSE) %>%
+  ggplot(aes(x = fct_infreq(Especie))) +
+  geom_bar(fill = "tomato") +
+  coord_flip() +
+  labs(title = "Especies cuyos modelos 3D fallaron",
+       x = "Especie", y = "Cantidad de fallos") + 
+  theme_light() 
+```
+
+### 4. Cantidad de fotos por individuo (boxplot)
+```{r}
+ggplot(murcielagos, aes(x = Model3D, y = NumFotos, fill = Model3D)) +
+  geom_boxplot() +
+  labs(title = "Distribución de fotos según si se logró modelo 3D",
+       x = "¿Tiene modelo 3D?", y = "Número de fotos") +
+  theme_minimal()
+```
+
+### 5. Relación entre número de fotos y éxito de modelado (scatterplot)
+
+```{r}
+ggplot(murcielagos, aes(x = NumFotos, y = Especie, color = Model3D)) +
+  geom_jitter(width = 0, height = 0.2, alpha = 0.7) +
+  labs(title = "Relación entre número de fotos y éxito de modelado",
+       x = "Número de fotos", y = "Especie")
+```
+## Análisis de imágenes
+
+### Carga de imágen
+
+```{r}
+# Load image
+img_path <- "img/bg_removed/A-147.png"
+img <- image_read(img_path)
+
+# Plot original image
+print(img)
+```
+
+### Convert Image to Data Frame
+```{r}
+
+# Resize for performance
+img_small <- image_scale(img, "200")  # Redimensiona imagen
+
+# Convertir a raster y extraer colores
+img_raster <- as.raster(img_small)
+rgb_matrix <- col2rgb(img_raster)  # columnas = píxeles
+
+# Convertir a data.frame y filtrar blancos
+pixels <- as.data.frame(t(rgb_matrix)) %>%
+  rename(red = red, green = green, blue = blue) %>%
+  filter(!(red > 250 & green > 250 & blue > 250))  # Filtra blancos casi puros
+```
+
+### Run K-means to Find Dominant Colors
+```{r}
+
+set.seed(123)
+k <- 6  # Number of dominant colors
+
+kmeans_result <- kmeans(pixels, centers = k)
+
+# Get cluster centers (dominant colors)
+colors <- as.data.frame(kmeans_result$centers)
+colors$hex <- rgb(colors$red, colors$green, colors$blue, maxColorValue = 255)
+
+# Add cluster labels to pixels
+pixels$cluster <- kmeans_result$cluster
+```
+
+### Calculate Color Proportions
+```{r}
+
+# Agregar el número de cluster como columna en `colors`
+colors$cluster <- 1:nrow(colors)
+
+# Hacer el join normalmente
+color_summary <- pixels %>%
+  count(cluster) %>%
+  left_join(colors, by = "cluster") %>%
+  mutate(prop = n / sum(n)) %>%
+  arrange(desc(prop))
+```
+
+### Plot as Pie Chart
+```{r}
+
+ggplot(color_summary, aes(x = 2, y = prop, fill = hex)) +  # x = 2 para dejar espacio central
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  xlim(0.25, 2.75) +  # Esto crea el agujero central (efecto dona)
+  scale_fill_identity(
+    name = "Color",
+    labels = color_summary$hex,
+    guide = "legend"
+  ) +
+  labs(title = "Dominant Colors ",
+       subtitle = "A-147") +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.subtitle = element_text(hjust = 0.5)) +
+  theme(plot.margin = unit(c(0, 0, 0.5, 0.5), "inches"))
+
+```
+
+Plot as Bar Chart
+```{r}
+
+ggplot(color_summary, aes(x = fct_reorder(hex, -prop), y = prop, fill = hex)) +
+  geom_col() +
+  scale_fill_identity() +
+  labs(title = "Dominant Colors (Bar Chart)",
+       x = "Color", y = "Proportion") +
+  theme_minimal()
+```
+
+## Procesar Todas las Imágenes
+
+```{r}
+library(magick)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(readr)
+
+# Leer y limpiar CSV original
+datos_crudos <- read_csv("Espécimenes - Modelos_3D.csv")
+murcielagos <- datos_crudos %>% select(-Notas)
+
+# Crear columna vacía para colores
+murcielagos$Colores <- NA
+
+# Crear carpeta de salida
+dir.create("output", showWarnings = FALSE)
+
+# Obtener archivos de imagen
+img_files <- list.files("img/bg_removed", pattern = "\\.png$", full.names = TRUE)
+
+# Procesar cada imagen
+for (img_path in img_files) {
+  
+  # Leer imagen y nombre base
+  img <- image_read(img_path)
+  img_name <- tools::file_path_sans_ext(basename(img_path))  # p. ej., "A-147"
+  
+  # Escalar imagen
+  img_small <- image_scale(img, "200")
+  img_raster <- as.raster(img_small)
+  rgb_matrix <- col2rgb(img_raster)
+  
+  # Convertir a data frame de colores
+  pixels <- as.data.frame(t(rgb_matrix)) %>%
+    rename(red = red, green = green, blue = blue) %>%
+    filter(!(red > 250 & green > 250 & blue > 250))  # quitar fondo blanco
+  
+  # K-means
+  set.seed(123)
+  k <- 6
+  kmeans_result <- kmeans(pixels, centers = k)
+  colors <- as.data.frame(kmeans_result$centers)
+  colors$hex <- rgb(colors$red, colors$green, colors$blue, maxColorValue = 255)
+  colors$cluster <- 1:nrow(colors)
+  pixels$cluster <- kmeans_result$cluster
+  
+  color_summary <- pixels %>%
+    count(cluster) %>%
+    left_join(colors, by = "cluster") %>%
+    mutate(prop = n / sum(n)) %>%
+    arrange(desc(prop))
+  
+  # Crear gráfico
+  donut_plot <- ggplot(color_summary, aes(x = 2, y = prop, fill = hex)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  xlim(0.5, 2.5) +  # ajusta el agujero central
+  scale_fill_identity(name = "Color", labels = color_summary$hex, guide = "legend") +
+  labs(
+    title = img_name,
+    subtitle = "Dominant Colors"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.key.size = unit(2, "lines"),
+    legend.text = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 20, margin = margin(b = 2)),
+    plot.subtitle = element_text(hjust = 0.5, size = 15, margin = margin(b = 0)),
+    plot.margin = unit(c(0.2, 0.2, 0, 0), "inches")  # reduce márgenes externos
+  )
+  
+  # Guardar gráfico
+  ggsave(
+    filename = paste0("output/", img_name, "_colors.png"),
+    plot = donut_plot,
+    width = 6, height = 7
+  )
+  
+  # Guardar colores en CSV
+  hex_concat <- paste(color_summary$hex, collapse = ",")
+  
+  # Buscar fila correspondiente y asignar
+  murcielagos$Colores[murcielagos$ID == img_name] <- hex_concat
+}
+
+write_csv(murcielagos, "murcielagos_colores.csv")
+```
+
